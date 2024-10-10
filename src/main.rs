@@ -1,6 +1,8 @@
 use cached::proc_macro::cached;
 use itertools::Itertools;
+use std::collections::BTreeMap;
 use std::collections::HashMap;
+use std::collections::VecDeque;
 use std::fmt;
 use std::io::{self, Write};
 
@@ -43,7 +45,6 @@ fn get_neighbors(row: u8, col: u8) -> Vec<Cell> {
             (row + 1, col),
         ]
     };
-
     let valid_locations: Vec<(u8, u8)> = locations
         .iter()
         .filter(|&&loc| is_valid_location(loc))
@@ -56,7 +57,7 @@ fn get_neighbors(row: u8, col: u8) -> Vec<Cell> {
         .collect()
 }
 
-#[derive(Copy, Clone, Debug)]
+#[derive(Eq, PartialEq, Hash, Copy, Clone, Debug)]
 struct Cell {
     row: u8,
     col: u8,
@@ -69,6 +70,13 @@ impl Cell {
 
     fn get_neighbors(&self) -> Vec<Cell> {
         get_neighbors(self.row, self.col)
+    }
+}
+
+impl fmt::Display for Cell {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "({}-{})", self.col, self.row)?;
+        Ok(())
     }
 }
 
@@ -116,6 +124,7 @@ impl Board {
     fn from_input(input: Vec<u8>) -> Self {
         let mut board = Board::new();
         board.gen_map_live_outer_cells();
+        let mut dropped_cells: Vec<(u8, u8)> = Vec::new();
 
         for &value in input.iter() {
             let col = value / 10;
@@ -123,9 +132,11 @@ impl Board {
             if !is_valid_location((row, col)) {
                 panic!("Invalid row or col input");
             }
-            println!("Will drop cell ({} - {})", row, col);
+            dropped_cells.push((row, col));
             board.drop_cell(row, col);
         }
+
+        println!("Will drop cells {:?}", dropped_cells);
         board
     }
 
@@ -192,12 +203,6 @@ impl Board {
         }
     }
 
-    // fn check_move(&self, from: &Cell, to: &Cell) -> bool {
-    //     if !self.cells[from.row][from.col] || !self.cells[to.row][to.col] {
-    //         return false;
-    //     }
-    // }
-    //
     fn get_available_blocks(&mut self) -> Vec<Cell> {
         let mut available_blocks: Vec<Cell> = Vec::new();
         for row in 1..ROWS + 1 {
@@ -207,8 +212,7 @@ impl Board {
                     col: col as u8,
                 };
                 if self.value_at_cell(&cell)
-                    && row != MIMIC_INITIAL_ROW
-                    && col != MIMIC_INITIAL_COL
+                    && (row != MIMIC_INITIAL_ROW || col != MIMIC_INITIAL_COL)
                     && !cell.is_outer()
                 {
                     available_blocks.push(cell);
@@ -218,60 +222,101 @@ impl Board {
         available_blocks
     }
 
-    fn count_living_cells(&self) -> usize {
-        return self.cells.iter().flatten().filter(|&&x| x).count();
-    }
-
     fn calc_benefit(&mut self, removing_cells: &Vec<Cell>) -> (isize, Vec<Cell>) {
-        let num_initial_living_cells: usize = self.count_living_cells();
         let mut imaginery_board = self.create_imagine_board(removing_cells);
         imaginery_board.remove_unreachable_blocks();
 
-        let num_total_removing_cells: usize =
-            self.map_live_outer_cells.len() + removing_cells.len();
+        let reachable_cells: Vec<Cell> = imaginery_board.get_reachable_cells();
+        let border_cells: Vec<Cell> = reachable_cells
+            .iter()
+            .filter(|&&cell| cell.is_outer())
+            .cloned()
+            .collect();
+
+        let num_total_removing_cells: usize = border_cells.len() + removing_cells.len();
         if num_total_removing_cells > MAX_BLOCKS_TO_REMOVE {
             return (-1, Vec::new());
         }
 
-        let total_removing_cells: Vec<Cell> = imaginery_board
-            .map_live_outer_cells
-            .values()
-            .cloned()
+        let total_removing_cells: Vec<Cell> = border_cells
+            .clone()
             .into_iter()
             .chain(removing_cells.clone().into_iter())
             .collect();
 
         return (
-            (num_initial_living_cells - num_total_removing_cells) as isize,
+            (reachable_cells.len() - border_cells.len()) as isize,
             total_removing_cells,
         );
     }
 
     fn solve(&mut self) -> (isize, Vec<Vec<Cell>>) {
         let available_blocks: Vec<Cell> = self.get_available_blocks();
+        println!("Available blocks: {}", available_blocks.iter().join(", "));
 
-        let mut combinations: Vec<Vec<Cell>> = Vec::new();
+        let mut map_size_combinations: BTreeMap<u8, Vec<Vec<Cell>>> = BTreeMap::new();
+        map_size_combinations.insert(0, vec![vec![]]);
+
+        let mut num_combos: usize = 1;
         for size in 1..11 {
             let combos: Vec<Vec<Cell>> = available_blocks
                 .clone()
                 .into_iter()
                 .combinations(size)
                 .collect();
-            combinations.extend(combos);
+            num_combos += combos.len();
+            map_size_combinations.insert(size as u8, combos);
         }
+
+        println!("Found total {} combinations", num_combos);
 
         let mut max_benefit_combinations: Vec<Vec<Cell>> = Vec::new();
         let mut max_benefit: isize = 0;
-        for combination in combinations {
-            let (benefit, removing_cells) = self.calc_benefit(&combination);
+        let mut countdown: u8 = 2;
+
+        let mut map_size_benefit: HashMap<u8, isize> = HashMap::new();
+        let mut current_combinations: Vec<Vec<Cell>> = Vec::new();
+
+        for (size, combinations) in &map_size_combinations {
+            if countdown == 0 {
+                break;
+            }
+
+            println!("Calculating benefit for combination size = {}", size);
+            for combination in combinations {
+                let (benefit, removing_cells) = self.calc_benefit(&combination);
+
+                match map_size_benefit.get(&size) {
+                    Some(&value) => {
+                        if benefit > value {
+                            map_size_benefit.insert(*size, benefit);
+                            current_combinations.clear();
+                            current_combinations.push(removing_cells);
+                        } else if benefit == value {
+                            current_combinations.push(removing_cells);
+                        }
+                    }
+                    None => {
+                        map_size_benefit.insert(*size, benefit);
+                    }
+                }
+            }
+
+            let &benefit = map_size_benefit.get(&size).unwrap();
             if benefit < max_benefit {
-                continue;
+                if benefit != -1 {
+                    println!("Benefit is decreasing, counting down ({})", countdown);
+                    countdown -= 1;
+                }
             } else if benefit == max_benefit {
-                max_benefit_combinations.push(removing_cells);
+                println!("Benefit similar to the last loop");
+                max_benefit_combinations.extend(current_combinations.clone());
+                countdown = 2;
             } else {
+                println!("Update new max benefit = {}", benefit);
                 max_benefit = benefit;
                 max_benefit_combinations.clear();
-                max_benefit_combinations.push(removing_cells);
+                max_benefit_combinations.extend(current_combinations.clone());
             }
         }
         return (max_benefit, max_benefit_combinations);
@@ -292,6 +337,40 @@ impl Board {
             }
         }
         self
+    }
+
+    fn get_reachable_cells(&mut self) -> Vec<Cell> {
+        let mut queue: VecDeque<Cell> = VecDeque::new();
+        let mut visited: HashMap<Cell, bool> = HashMap::new();
+        let mut queued: HashMap<Cell, bool> = HashMap::new();
+
+        queue.push_back(Cell {
+            col: MIMIC_INITIAL_COL as u8,
+            row: MIMIC_INITIAL_ROW as u8,
+        });
+
+        while !queue.is_empty() {
+            let cell = queue.pop_front().unwrap();
+            visited.insert(cell, true);
+            for neighbor_cell in cell.get_neighbors() {
+                if !self.value_at_cell(&neighbor_cell) {
+                    continue;
+                }
+
+                if cell.is_outer() && neighbor_cell.is_outer() {
+                    continue;
+                }
+
+                if visited.contains_key(&neighbor_cell) || queued.contains_key(&neighbor_cell) {
+                    continue;
+                }
+
+                queue.push_back(neighbor_cell);
+                queued.insert(neighbor_cell, true);
+            }
+        }
+
+        return visited.keys().cloned().collect();
     }
 }
 
@@ -326,10 +405,13 @@ fn parse_input() -> Vec<u8> {
 fn main() {
     let input: Vec<u8> = parse_input();
     let mut board = Board::from_input(input);
-    println!("{:?}", board);
+    board.remove_redundant_blocks();
     println!("{}", board);
-    println!("{:?}", board.remove_redundant_blocks());
+    println!("Live outer has {} cells", board.map_live_outer_cells.len());
     let (benefit, combinations) = board.solve();
     println!("The maximum benefit is {}", benefit);
-    println!("All combinations: {:?}", combinations);
+    println!("All combinations:");
+    for combination in combinations {
+        println!("Cells: {}", combination.iter().join(", "));
+    }
 }
