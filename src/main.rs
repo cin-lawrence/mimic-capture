@@ -140,30 +140,30 @@ impl Board {
         board
     }
 
-    fn remove_unreachable_blocks(&mut self) {
-        let mut removing_cells: Vec<Cell> = Vec::new();
+    // fn remove_unreachable_blocks(&mut self) {
+    //     let mut removing_cells: Vec<Cell> = Vec::new();
 
-        for cell in self.map_live_outer_cells.values() {
-            let live_neighbors: Vec<Cell> = cell
-                .get_neighbors()
-                .iter()
-                .filter(|&c| self.value_at_cell(c))
-                .cloned()
-                .collect();
+    //     for cell in self.map_live_outer_cells.values() {
+    //         let live_neighbors: Vec<Cell> = cell
+    //             .get_neighbors()
+    //             .iter()
+    //             .filter(|&c| self.value_at_cell(c))
+    //             .cloned()
+    //             .collect();
 
-            if live_neighbors.len() > 1 {
-                continue;
-            }
+    //         if live_neighbors.len() > 1 {
+    //             continue;
+    //         }
 
-            if live_neighbors.len() == 0 {
-                removing_cells.push(*cell);
-            }
-        }
+    //         if live_neighbors.len() == 0 {
+    //             removing_cells.push(*cell);
+    //         }
+    //     }
 
-        for cell in &removing_cells {
-            self.drop_cell(cell.row, cell.col);
-        }
-    }
+    //     for cell in &removing_cells {
+    //         self.drop_cell(cell.row, cell.col);
+    //     }
+    // }
 
     fn remove_redundant_blocks(&mut self) {
         let mut blocks_removed: u8 = u8::MAX;
@@ -195,7 +195,6 @@ impl Board {
                     blocks_removed += 1;
                 }
             }
-            println!("Dropping cells: {:?}", removing_cells);
             for cell in &removing_cells {
                 self.drop_cell(cell.row, cell.col);
             }
@@ -224,7 +223,8 @@ impl Board {
 
     fn calc_benefit(&mut self, removing_cells: &Vec<Cell>) -> (isize, Vec<Cell>) {
         let mut imaginery_board = self.create_imagine_board(removing_cells);
-        imaginery_board.remove_unreachable_blocks();
+        // imaginery_board.remove_unreachable_blocks();
+        imaginery_board.remove_redundant_blocks();
 
         let reachable_cells: Vec<Cell> = imaginery_board.get_reachable_cells();
         let border_cells: Vec<Cell> = reachable_cells
