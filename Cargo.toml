@@ -1,0 +1,8 @@
+[package]
+name = "mimic-capture"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+cached = "0.37"
+itertools = "0.11"
