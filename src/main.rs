@@ -1,5 +1,6 @@
 use cached::proc_macro::cached;
 use itertools::Itertools;
+use std::cmp::Ordering;
 use std::collections::BTreeMap;
 use std::collections::HashMap;
 use std::collections::VecDeque;
@@ -140,31 +141,6 @@ impl Board {
         board
     }
 
-    // fn remove_unreachable_blocks(&mut self) {
-    //     let mut removing_cells: Vec<Cell> = Vec::new();
-
-    //     for cell in self.map_live_outer_cells.values() {
-    //         let live_neighbors: Vec<Cell> = cell
-    //             .get_neighbors()
-    //             .iter()
-    //             .filter(|&c| self.value_at_cell(c))
-    //             .cloned()
-    //             .collect();
-
-    //         if live_neighbors.len() > 1 {
-    //             continue;
-    //         }
-
-    //         if live_neighbors.len() == 0 {
-    //             removing_cells.push(*cell);
-    //         }
-    //     }
-
-    //     for cell in &removing_cells {
-    //         self.drop_cell(cell.row, cell.col);
-    //     }
-    // }
-
     fn remove_redundant_blocks(&mut self) {
         let mut blocks_removed: u8 = u8::MAX;
         let mut removing_cells: Vec<Cell> = Vec::new();
@@ -298,6 +274,8 @@ impl Board {
                     }
                     None => {
                         map_size_benefit.insert(*size, benefit);
+                        current_combinations.clear();
+                        current_combinations.push(removing_cells);
                     }
                 }
             }
@@ -317,6 +295,7 @@ impl Board {
                 max_benefit = benefit;
                 max_benefit_combinations.clear();
                 max_benefit_combinations.extend(current_combinations.clone());
+                countdown = 2;
             }
         }
         return (max_benefit, max_benefit_combinations);
@@ -412,6 +391,25 @@ fn main() {
     println!("The maximum benefit is {}", benefit);
     println!("All combinations:");
     for combination in combinations {
-        println!("Cells: {}", combination.iter().join(", "));
+        let sorted_combination: Vec<Cell> = combination
+            .clone()
+            .into_iter()
+            .sorted_by(|a, b| {
+                if a.col < b.col {
+                    Ordering::Less
+                } else if a.col > b.col {
+                    Ordering::Greater
+                } else {
+                    if a.row < b.row {
+                        Ordering::Less
+                    } else if a.row > b.row {
+                        Ordering::Greater
+                    } else {
+                        Ordering::Equal
+                    }
+                }
+            })
+            .collect();
+        println!("Cells: {}", sorted_combination.iter().join(", "));
     }
 }
